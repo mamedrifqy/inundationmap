@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InundationMap V2 — PRM M4CR Riau</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#06100d;--panel:#0c1f18;--panel2:#0f2920;--border:#1e4030;
+  --teal:#00e5a0;--teal2:#00b87a;--teal-dim:rgba(0,229,160,0.1);
+  --orange:#ff7c38;--yellow:#ffd166;--blue:#4a90d9;--red:#e05252;
+  --text:#e8f5ee;--text2:#7ec49a;--text3:#4a7a5c;
+  --fh:'Syne',sans-serif;--fm:'Space Mono',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--fh)}
+#app{display:grid;grid-template-columns:368px 1fr;grid-template-rows:54px 1fr;height:100vh}
+
+/* TOPBAR */
+#topbar{grid-column:1/-1;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:11px;padding:0 16px;z-index:300}
+#reload-btn{display:flex;align-items:center;gap:9px;cursor:pointer;background:none;border:none;padding:4px 8px 4px 4px;border-radius:8px;transition:background .15s;color:var(--text);font-family:var(--fh)}
+#reload-btn:hover{background:var(--teal-dim)}
+#reload-btn:hover .logo-icon{background:var(--teal2)}
+.logo-icon{width:30px;height:30px;background:var(--teal);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;transition:background .15s}
+.logo-name{font-size:14px;font-weight:800;letter-spacing:-.5px}
+.logo-sub{font-size:9px;color:var(--text2);font-family:var(--fm);letter-spacing:.5px}
+.tsep{width:1px;height:26px;background:var(--border);flex-shrink:0}
+.ttag{font-family:var(--fm);font-size:10px;color:var(--text2);background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:3px 8px;white-space:nowrap}
+.ttag.live{color:var(--teal);border-color:var(--teal2);background:var(--teal-dim)}
+#server-row{display:flex;align-items:center;gap:6px;margin-left:auto}
+#server-row label{font-size:10px;color:var(--text2);font-family:var(--fm);white-space:nowrap}
+#server-url{background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--fm);font-size:11px;padding:5px 10px;outline:none;width:210px;transition:border-color .15s}
+#server-url:focus{border-color:var(--teal)}
+#connect-btn{background:var(--teal2);border:none;border-radius:6px;color:#06100d;font-family:var(--fh);font-size:11px;font-weight:700;padding:6px 12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+#connect-btn:hover{background:var(--teal)}
+.status-pill{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;background:var(--panel2);border:1px solid var(--border);font-size:10px;font-family:var(--fm);white-space:nowrap}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--text3);transition:all .3s;flex-shrink:0}
+.sdot.ok{background:var(--teal);box-shadow:0 0 6px var(--teal)}.sdot.busy{background:var(--yellow);animation:pulse 1s infinite}.sdot.err{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* SIDEBAR */
+#sidebar{background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.scroller{flex:1;overflow-y:auto;padding:14px}
+.scroller::-webkit-scrollbar{width:3px}.scroller::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.slabel{font-size:9px;font-family:var(--fm);color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px;margin-top:14px}
+.slabel:first-child{margin-top:0}
+
+.asset-row{display:flex;gap:6px;margin-bottom:4px}
+.asset-row input{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--fm);font-size:11px;padding:7px 9px;outline:none;transition:border-color .15s}
+.asset-row input:focus{border-color:var(--teal)}
+.icon-btn{background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--teal2);font-size:14px;width:34px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.icon-btn:hover{border-color:var(--teal);background:var(--teal-dim)}
+
+/* FILTERS */
+.filter-grid{display:flex;flex-direction:column;gap:5px}
+.fsel{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--fm);font-size:11px;padding:7px 26px 7px 9px;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237ec49a'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center;cursor:pointer;transition:border-color .15s}
+.fsel:focus{border-color:var(--teal)}.fsel:disabled{color:var(--text3);cursor:not-allowed;opacity:.4}.fsel option{background:#0c1f18;color:var(--text)}
+/* highlight when active */
+.fsel.active-filter{border-color:var(--teal2);color:var(--teal)}
+
+/* POLYGON LIST */
+#poly-list{display:flex;flex-direction:column;gap:5px;min-height:36px}
+.poly-item{display:flex;align-items:center;gap:8px;padding:9px 10px;background:var(--panel2);border:1px solid var(--border);border-radius:7px;cursor:pointer;transition:all .15s;user-select:none}
+.poly-item:hover{border-color:var(--teal2)}.poly-item.active{border-color:var(--teal);background:var(--teal-dim);box-shadow:0 0 0 1px var(--teal)}
+.pdot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.pname{font-size:11px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pha{font-size:10px;color:var(--text2);font-family:var(--fm);flex-shrink:0}
+.pcheck{width:16px;height:16px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;flex-shrink:0;transition:all .15s}
+.poly-item.active .pcheck{background:var(--teal);border-color:var(--teal);color:#06100d}
+.poly-empty{font-size:10px;color:var(--text3);font-family:var(--fm);padding:8px 2px;text-align:center;line-height:1.7}
+
+/* DEBUG BOX */
+#debug-box{background:#0a1a10;border:1px solid #2a5030;border-radius:6px;padding:8px 10px;margin-top:6px;font-family:var(--fm);font-size:9px;color:#5a9a6a;max-height:80px;overflow-y:auto;display:none;line-height:1.6;word-break:break-all}
+#debug-box.show{display:block}
+
+/* DATE */
+.date-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.dfield{display:flex;flex-direction:column;gap:3px}.dfield label{font-size:9px;color:var(--text2);font-family:var(--fm)}
+.dfield input{background:var(--panel2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--fm);font-size:11px;padding:6px 8px;outline:none;width:100%;transition:border-color .15s}
+.dfield input:focus{border-color:var(--teal)}
+
+/* LAYERS */
+#layer-list{display:flex;flex-direction:column;gap:2px}
+.ltoggle{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:6px;cursor:pointer;transition:background .15s;position:relative}
+.ltoggle:hover{background:var(--panel2)}
+.tsw{width:28px;height:15px;background:var(--border);border-radius:8px;position:relative;flex-shrink:0;transition:background .2s}
+.tsw::after{content:'';position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--text3);transition:all .2s}
+.ltoggle.on .tsw{background:var(--teal2)}.ltoggle.on .tsw::after{left:15px;background:#fff}
+.lswatch{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.lname{font-size:11px;flex:1}
+.l-info-btn{width:15px;height:15px;border-radius:50%;background:transparent;border:1px solid var(--text3);color:var(--text3);font-size:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:var(--fm);font-weight:700;transition:all .15s;flex-shrink:0}
+.l-info-btn:hover{border-color:var(--teal);color:var(--teal);background:var(--teal-dim)}
+.lopacity{width:42px;height:3px;background:var(--border);border-radius:2px;cursor:pointer;appearance:none;outline:none}
+.lopacity::-webkit-slider-thumb{appearance:none;width:9px;height:9px;border-radius:50%;background:var(--teal2);cursor:pointer}
+.layer-tip{display:none;position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%);background:var(--panel);border:1px solid var(--teal2);border-radius:8px;padding:10px 13px;z-index:900;width:230px;box-shadow:0 8px 24px rgba(0,0,0,.5);pointer-events:none}
+.layer-tip.show{display:block}
+.layer-tip-title{font-size:10px;font-weight:700;color:var(--teal);margin-bottom:5px;font-family:var(--fm)}
+.layer-tip-body{font-size:10px;color:var(--text2);line-height:1.55}
+
+/* STATS */
+#stats-wrap{padding:11px 13px;border-top:1px solid var(--border);background:var(--panel2);position:relative}
+.stats-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.stitle{font-size:9px;font-family:var(--fm);color:var(--text3);letter-spacing:2px;text-transform:uppercase}
+#info-btn{width:18px;height:18px;border-radius:50%;background:var(--panel);border:1px solid var(--border);color:var(--teal2);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:var(--fm);font-weight:700;transition:all .15s}
+#info-btn:hover{border-color:var(--teal);background:var(--teal-dim);color:var(--teal)}
+#info-tooltip{display:none;position:absolute;bottom:calc(100% + 8px);right:13px;background:var(--panel);border:1px solid var(--teal2);border-radius:9px;padding:13px 14px;z-index:800;width:296px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+#info-tooltip.show{display:block}
+.it-title{font-size:11px;font-weight:700;color:var(--teal);margin-bottom:10px;font-family:var(--fm)}
+.it-row{display:flex;gap:9px;margin-bottom:9px;align-items:flex-start}.it-row:last-child{margin-bottom:0}
+.it-swatch{width:11px;height:11px;border-radius:3px;margin-top:2px;flex-shrink:0}
+.it-body{font-size:10px;color:var(--text2);line-height:1.55}.it-body strong{color:var(--text);font-weight:700}
+.sgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.scard{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:8px 10px}
+.sval{font-size:18px;font-weight:800;line-height:1;margin-bottom:2px}.slbl{font-size:9px;color:var(--text2);font-family:var(--fm)}
+.scard.ci .sval{color:#4a90d9}.scard.cf .sval{color:var(--orange)}.scard.cs .sval{color:var(--yellow)}.scard.ck .sval{color:var(--teal)}
+
+/* RUN BUTTON */
+#run-wrap{padding:12px 13px;border-top:1px solid var(--border)}
+#run-btn{width:100%;padding:12px;background:var(--teal);color:#06100d;border:none;border-radius:9px;font-family:var(--fh);font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;transition:all .2s}
+#run-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.15),transparent);opacity:0;transition:opacity .2s}
+#run-btn:hover:not(:disabled)::before{opacity:1}
+#run-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,229,160,.3)}
+#run-btn:disabled{background:var(--border);color:var(--text3);cursor:not-allowed}
+#run-btn.busy{background:var(--yellow)}
+.spin{width:13px;height:13px;border:2px solid rgba(6,16,13,.3);border-top-color:#06100d;border-radius:50%;animation:sp .7s linear infinite;display:none}
+.spin.show{display:block}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* MAP */
+#map{position:relative}
+#lmap{width:100%;height:100%}
+.leaflet-container{background:#060f0a!important}
+.leaflet-top.leaflet-left{display:none}
+.leaflet-top.leaflet-right{top:12px;right:12px}
+.leaflet-control-zoom a{background:var(--panel)!important;color:var(--teal)!important;border-color:var(--border)!important}
+.leaflet-control-attribution{background:rgba(6,16,13,.85)!important;color:var(--text3)!important;font-size:9px!important}
+.leaflet-control-attribution a{color:var(--text2)!important}
+.leaflet-popup-content-wrapper{background:var(--panel2)!important;border:1px solid var(--border)!important;color:var(--text)!important;border-radius:8px!important;box-shadow:0 8px 24px rgba(0,0,0,.5)!important}
+.leaflet-popup-tip{background:var(--panel2)!important}
+
+/* LANDING — clean, code-gated */
+#landing{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:rgba(8,20,14,0.96);
+  border:1px solid var(--border);border-radius:14px;
+  padding:28px 28px 24px;z-index:500;backdrop-filter:blur(16px);
+  width:370px;max-width:calc(100% - 32px);
+  box-shadow:0 20px 60px rgba(0,0,0,.6);
+  transition:opacity .4s,transform .4s;
+}
+#landing.hide{opacity:0;pointer-events:none;transform:translate(-50%,-54%)}
+.ld-logo{display:flex;align-items:center;gap:11px;margin-bottom:16px}
+.ld-logo-icon{width:38px;height:38px;background:var(--teal);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.ld-logo-text{font-size:18px;font-weight:800;line-height:1.2}
+.ld-logo-text span{color:var(--teal)}
+.ld-logo-sub{font-size:10px;color:var(--text2);font-family:var(--fm);margin-top:1px}
+.ld-desc{font-size:11px;color:var(--text2);font-family:var(--fm);line-height:1.65;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+/* colab link */
+.ld-colab{display:flex;align-items:center;gap:9px;background:var(--teal-dim);border:1px solid var(--teal2);border-radius:8px;padding:10px 13px;text-decoration:none;color:var(--teal);font-family:var(--fm);font-size:10px;font-weight:700;transition:all .15s;margin-bottom:16px}
+.ld-colab:hover{background:rgba(0,229,160,.18)}
+.ld-colab-icon{width:22px;height:22px;background:linear-gradient(135deg,#f9ab00,#e37400);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.ld-colab-txt{flex:1}
+.ld-colab-txt strong{display:block;font-size:11px}
+.ld-colab-txt small{color:var(--text3);font-size:9px;font-weight:400}
+/* code gate */
+.ld-gate{background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:14px 15px}
+.ld-gate-label{font-size:9px;font-family:var(--fm);color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+.ld-code-row{display:flex;gap:8px;margin-bottom:8px}
+.ld-code-input{flex:1;background:var(--bg);border:1.5px solid var(--border);border-radius:7px;color:var(--text);font-family:var(--fm);font-size:13px;padding:9px 12px;outline:none;letter-spacing:3px;text-align:center;text-transform:uppercase;transition:border-color .2s}
+.ld-code-input:focus{border-color:var(--teal2)}
+.ld-code-input.err{border-color:var(--red);animation:shake .3s}
+.ld-code-input.ok{border-color:var(--teal)}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.ld-enter-btn{background:var(--teal2);border:none;border-radius:7px;color:#06100d;font-family:var(--fh);font-size:12px;font-weight:800;padding:9px 16px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.ld-enter-btn:hover{background:var(--teal)}
+.ld-code-hint{font-size:10px;font-family:var(--fm);color:var(--text3);text-align:center}
+.ld-code-hint.err{color:var(--red)}.ld-code-hint.ok{color:var(--teal)}
+
+/* PROGRESS */
+#pbar{position:absolute;bottom:0;left:0;right:0;height:3px;z-index:600;overflow:hidden}
+#pfill{height:100%;background:linear-gradient(90deg,var(--teal),var(--teal2));width:0%;transition:width .35s ease}
+
+/* LEGEND */
+#legend{position:absolute;bottom:28px;right:50px;background:rgba(8,20,14,.97);border:1px solid var(--border);border-radius:9px;padding:12px 14px;z-index:400;backdrop-filter:blur(10px);min-width:186px;display:none}
+#legend.show{display:block}
+.ltitle{font-size:10px;font-weight:700;color:var(--teal);margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;font-family:var(--fm)}
+.li{display:flex;align-items:center;gap:7px;margin-bottom:5px}.li:last-child{margin-bottom:0}
+.lsw{width:12px;height:12px;border-radius:3px;flex-shrink:0}.ll{font-size:10px;color:var(--text2)}
+
+/* BADGE */
+#badge{position:absolute;top:50px;left:12px;background:rgba(8,20,14,.95);border:1px solid var(--teal);border-radius:7px;padding:6px 12px;z-index:400;backdrop-filter:blur(8px);display:none;align-items:center;gap:7px}
+#badge.show{display:flex}
+.bdot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 6px var(--teal)}.btext{font-size:11px;font-weight:700}
+
+/* LOG */
+#log-wrap{position:absolute;bottom:28px;left:12px;z-index:400}
+#log-toggle{background:rgba(8,20,14,.93);border:1px solid var(--border);border-radius:7px;padding:6px 10px;cursor:pointer;display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:10px;color:var(--text2);transition:all .15s}
+#log-toggle:hover{border-color:var(--teal2);color:var(--teal)}
+#log-toggle .dot{width:7px;height:7px;border-radius:50%;background:var(--text3)}
+#log-toggle .dot.busy{background:var(--yellow);animation:pulse 1s infinite}
+#log-toggle .dot.done{background:var(--teal)}.log-toggle .dot.err{background:var(--red)}
+#log-panel{background:rgba(6,16,13,.97);border:1px solid var(--border);border-radius:7px;padding:10px 12px;width:270px;max-height:160px;overflow-y:auto;margin-bottom:6px;display:none;font-family:var(--fm);font-size:10px}
+#log-panel.show{display:block}
+#log-lines{display:flex;flex-direction:column;gap:3px}
+.log-line{color:var(--text2);display:flex;gap:5px}.log-line .ts{color:var(--text3);flex-shrink:0}
+.log-line.done{color:var(--teal)}.log-line.err{color:var(--red)}
+
+/* TOAST */
+#toast{position:absolute;top:12px;right:60px;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:8px 12px;z-index:700;font-size:11px;font-family:var(--fm);display:none;gap:7px;align-items:center;max-width:290px}
+#toast.show{display:flex}
+#toast.info{border-color:var(--teal2);color:var(--teal)}
+#toast.warn{border-color:var(--orange);color:var(--orange)}
+#toast.error{border-color:var(--red);color:var(--red)}
+
+/* FOOTER — fully visible */
+#footer{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(6,16,13,0.97);
+  border-top:1px solid var(--border);
+  padding:7px 16px;z-index:350;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--fm);font-size:11px;color:var(--text2);
+  gap:5px;letter-spacing:.3px;
+}
+#footer a{color:var(--teal);text-decoration:none;font-weight:700;transition:color .15s}
+#footer a:hover{color:var(--teal2)}
+.fsep{color:var(--text3);margin:0 4px}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- TOPBAR -->
+<div id="topbar">
+  <button id="reload-btn" onclick="location.reload()" title="Reload page">
+    <div class="logo-icon">🌊</div>
+    <div>
+      <div class="logo-name">InundationMap V2</div>
+      <div class="logo-sub">GEE · Live Analysis</div>
+    </div>
+  </button>
+  <div class="tsep"></div>
+  <span class="ttag">PRM M4CR Riau</span>
+  <span class="ttag">S1 + S2 + FABDEM</span>
+  <span class="ttag live" id="gee-tag">● GEE Offline</span>
+  <div id="server-row">
+    <label>API SERVER</label>
+    <input id="server-url" type="text" placeholder="https://xxxx.ngrok-free.app">
+    <button id="connect-btn" onclick="connectServer()">Connect</button>
+  </div>
+  <div class="status-pill"><div class="sdot" id="sdot"></div><span id="stext">Disconnected</span></div>
+</div>
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+  <div class="scroller">
+
+    <div class="slabel">GEE Asset Path</div>
+    <div class="asset-row">
+      <input id="asset-path" type="text" placeholder="projects/project-id/assets/name" value="projects/gee-muhammadrifqy/assets/PRM_2026_Riau_349Ha">
+      <button class="icon-btn" title="Load polygons" onclick="loadPolygons()">↻</button>
+    </div>
+
+    <div class="slabel">Filter by Location</div>
+    <div class="filter-grid">
+      <select class="fsel" id="sel-kegiatan"  onchange="onFilter('kegiatan')"  disabled><option value="">— Kegiatan —</option></select>
+      <select class="fsel" id="sel-kabupaten" onchange="onFilter('kabupaten')" disabled><option value="">— Kabupaten/Kota —</option></select>
+      <select class="fsel" id="sel-kecamatan" onchange="onFilter('kecamatan')" disabled><option value="">— Kecamatan —</option></select>
+      <select class="fsel" id="sel-desa"      onchange="onFilter('desa')"      disabled><option value="">— Desa —</option></select>
+    </div>
+    <!-- Debug: shows real field names from asset -->
+    <div id="debug-box"></div>
+
+    <div class="slabel">Select Kelompok</div>
+    <div id="poly-list"><div class="poly-empty">Connect server → load asset (↻)<br>then filter by location above</div></div>
+
+    <div class="slabel">Baseline (Dry Season)</div>
+    <div class="date-row">
+      <div class="dfield"><label>Start</label><input type="date" id="bs" value="2024-01-01"></div>
+      <div class="dfield"><label>End</label>  <input type="date" id="be" value="2024-06-30"></div>
+    </div>
+    <div class="slabel">Flood Period (Wet Season)</div>
+    <div class="date-row">
+      <div class="dfield"><label>Start</label><input type="date" id="fs" value="2024-10-01"></div>
+      <div class="dfield"><label>End</label>  <input type="date" id="fe" value="2025-01-31"></div>
+    </div>
+
+    <div class="slabel">Layers</div>
+    <div id="layer-list"></div>
+  </div>
+
+  <!-- STATS -->
+  <div id="stats-wrap">
+    <div class="stats-header">
+      <div class="stitle">Area Statistics</div>
+      <button id="info-btn" onclick="toggleInfoTooltip()">i</button>
+    </div>
+    <div id="info-tooltip">
+      <div class="it-title">📊 Zone Definitions</div>
+      <div class="it-row"><div class="it-swatch" style="background:#1a237e"></div>
+        <div class="it-body"><strong>Inundated</strong> — Persistent open water/flooded forest (S1 specular + double-bounce + S2 NDWI). Do NOT plant.</div></div>
+      <div class="it-row"><div class="it-swatch" style="background:#ff7c38"></div>
+        <div class="it-body"><strong>Flooded</strong> — New flood events vs baseline (ΔVV &lt;−2 dB). Seasonal risk zone.</div></div>
+      <div class="it-row"><div class="it-swatch" style="background:#ffd166"></div>
+        <div class="it-body"><strong>Stress Zone</strong> — NDWI −0.1 to 0. Marginal — use <em>Avicennia</em>.</div></div>
+      <div class="it-row"><div class="it-swatch" style="background:#00e5a0;opacity:.8"></div>
+        <div class="it-body"><strong>Suitable</strong> — No constraint. Priority planting zone.</div></div>
+    </div>
+    <div class="sgrid">
+      <div class="scard ci"><div class="sval" id="sv-i">—</div><div class="slbl">Inundated (ha)</div></div>
+      <div class="scard cf"><div class="sval" id="sv-f">—</div><div class="slbl">Flooded (ha)</div></div>
+      <div class="scard cs"><div class="sval" id="sv-s">—</div><div class="slbl">Stress Zone (ha)</div></div>
+      <div class="scard ck"><div class="sval" id="sv-k">—</div><div class="slbl">Suitable (ha)</div></div>
+    </div>
+  </div>
+
+  <div id="run-wrap">
+    <button id="run-btn" onclick="runAnalysis()">
+      <span id="bicon">▶</span><span id="blabel">Run Analysis</span>
+      <div class="spin" id="bspin"></div>
+    </button>
+  </div>
+</div>
+
+<!-- MAP -->
+<div id="map">
+  <div id="lmap"></div>
+
+  <!-- LANDING PAGE — access code gated, no X button -->
+  <div id="landing">
+    <div class="ld-logo">
+      <div class="ld-logo-icon">🌊</div>
+      <div>
+        <div class="ld-logo-text">InundationMap <span>V2</span></div>
+        <div class="ld-logo-sub">PRM M4CR Riau · GEE Live Analysis</div>
+      </div>
+    </div>
+    <div class="ld-desc">
+      Multi-sensor satellite analysis (Sentinel-1 SAR · Sentinel-2 · FABDEM) to map inundation, flooding and stress zones within PRM 2026 polygons — Kuala Selat, Riau.
+    </div>
+
+    <!-- Colab link -->
+    <a class="ld-colab" href="https://colab.research.google.com/drive/1U5_hguzXB_1LrS_sWX51s0fjaSIwRIm0?usp=sharing" target="_blank" rel="noopener">
+      <div class="ld-colab-icon">▶</div>
+      <div class="ld-colab-txt">
+        <strong>Open Backend Server on Google Colab</strong>
+        <small>Run all cells → copy public URL → paste in API SERVER above</small>
+      </div>
+    </a>
+
+    <!-- Access code gate -->
+    <div class="ld-gate">
+      <div class="ld-gate-label">🔑 Enter Access Code to Continue</div>
+      <div class="ld-code-row">
+        <input class="ld-code-input" id="access-code" type="text" placeholder="••••••••" maxlength="10"
+          oninput="this.value=this.value.toUpperCase()"
+          onkeydown="if(event.key==='Enter')checkCode()">
+        <button class="ld-enter-btn" onclick="checkCode()">Enter →</button>
+      </div>
+      <div class="ld-code-hint" id="code-hint">Enter the access code to unlock analysis</div>
+    </div>
+  </div>
+
+  <div id="pbar"><div id="pfill"></div></div>
+  <div id="badge"><div class="bdot"></div><div class="btext" id="btext">—</div></div>
+
+  <!-- LEGEND -->
+  <div id="legend">
+    <div class="ltitle">Suitability</div>
+    <div class="li"><div class="lsw" style="background:#1a237e"></div><div class="ll">Inundated — Do Not Plant</div></div>
+    <div class="li"><div class="lsw" style="background:#ff7c38"></div><div class="ll">Flooded — Seasonal Risk</div></div>
+    <div class="li"><div class="lsw" style="background:#ffd166"></div><div class="ll">Stress Zone — Marginal</div></div>
+    <div class="li"><div class="lsw" style="background:#000060"></div><div class="ll">Permanently Submerged</div></div>
+    <div class="li"><div class="lsw" style="background:rgba(0,229,160,.55);border:1px solid #00e5a0"></div><div class="ll">Suitable to Plant ✓</div></div>
+    <div class="li"><div class="lsw" style="background:transparent;border:2px solid #ff4444"></div><div class="ll">PRM 2026 Boundary</div></div>
+  </div>
+
+  <!-- LOG -->
+  <div id="log-wrap">
+    <div id="log-panel"><div id="log-lines"></div></div>
+    <div id="log-toggle" onclick="toggleLog()">
+      <div class="dot" id="log-dot"></div>
+      <span id="log-label">Processing Log</span>
+      <span id="log-chevron" style="margin-left:2px;font-size:9px">▲</span>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- FOOTER -->
+  <div id="footer">
+    Created by <a href="https://mamedrifqy.github.io" target="_blank" rel="noopener">Muhammad Rifqy</a>
+    <span class="fsep">&amp;</span> Anthropic
+  </div>
+</div>
+</div>
+
+<script>
+const ACCESS_CODE = 'M4CR2026';
+const HEADERS = {'ngrok-skip-browser-warning':'true'};
+let API_BASE = '';
+
+// ── FIELD NAME MAP — try all known casing variants ──
+// We auto-detect real field names from the asset on load
+let FIELD_MAP = {
+  kegiatan:  ['Kegiatan','kegiatan','KEGIATAN','Kegiatan ','Program'],
+  kabupaten: ['Kab/Kota','kab/kota','KAB/KOTA','Kabupaten','kabupaten','Kab_Kota','Kab','kab'],
+  kecamatan: ['Kecamatan','kecamatan','KECAMATAN','Kec','kec'],
+  desa:      ['Desa','desa','DESA','Kelurahan','kelurahan'],
+  kelompok:  ['Kelompok','kelompok','KELOMPOK','Pokmas','pokmas','Group','group'],
+  area:      ['area_ha','Area_Ha','AREA_HA','Luas_ha','luas_ha','Shape_Area','LuasLahan'],
+};
+
+// Auto-detected field keys from first polygon
+let detectedFields = {};
+
+const LAYER_DEFS = [
+  {id:'true_color',label:'True Color (S2)',      color:'#4a7a5c',on:true, opacity:.8,  info:'Sentinel-2 RGB (B4-B3-B2) cloud-masked median. Shows vegetation and land cover.'},
+  {id:'suitable',  label:'Suitable to Plant',    color:'#00e5a0',on:true, opacity:.6,  info:'No hydrological constraints — priority zone for PRM 2026 mangrove planting.'},
+  {id:'inundation',label:'Inundation (S1+S2)',   color:'#1a237e',on:true, opacity:.75, info:'Persistent water: S1 specular (VV<−16, VH<−23 dB) + double-bounce + S2 NDWI>0.'},
+  {id:'flood',     label:'Flood (Bi-temporal)',  color:'#ff7c38',on:true, opacity:.75, info:'New flood events: wet vs dry season SAR comparison (ΔVV<−2 dB).'},
+  {id:'stress',    label:'Stress Zone',          color:'#ffd166',on:true, opacity:.70, info:'Moisture stress (NDWI −0.1→0). Marginal — use Avicennia alba.'},
+  {id:'submerged', label:'Permanently Submerged',color:'#000060',on:true, opacity:.80, info:'Depth ≥1.5 m (FABDEM). Subtidal — mangroves cannot survive here.'},
+  {id:'depth',     label:'Inundation Depth (m)', color:'#2171b5',on:false,opacity:.70, info:'Water surface elevation minus bare-earth DEM. Pale→deep blue = shallow→deep.'},
+  {id:'ndwi',      label:'NDWI (Water Index)',   color:'#0077bb',on:false,opacity:.65, info:'(Green−NIR)/(Green+NIR) from Sentinel-2. >0 = water surface present.'},
+  {id:'boundary',  label:'PRM 2026 Boundary',    color:'#ff4444',on:true, opacity:1.0, info:'Official PRM 2026 polygon boundary from GEE asset. Click for area statistics.'},
+];
+const COLORS=['#00e5a0','#4a90d9','#ff7c38','#ffd166','#e05252','#b57bee','#5ec4ff','#ff88a0'];
+
+let map, allPolygons=[], selected=null;
+let layerState={}, tileLayers={}, toastTimer, serverOk=false, logOpen=false;
+
+// ════ MAP ════
+function initMap(){
+  map=L.map('lmap',{center:[0.22,103.22],zoom:11,zoomControl:true});
+  map.zoomControl.setPosition('topright');
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {attribution:'Tiles © Esri',maxZoom:19,opacity:.85}).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',
+    {attribution:'© CartoDB',maxZoom:19,opacity:.7,pane:'overlayPane'}).addTo(map);
+  renderLayerControls();
+}
+
+// ════ ACCESS CODE ════
+function checkCode(){
+  const val=document.getElementById('access-code').value.trim().toUpperCase();
+  const inp=document.getElementById('access-code');
+  const hint=document.getElementById('code-hint');
+  if(val===ACCESS_CODE){
+    inp.className='ld-code-input ok';
+    hint.className='ld-code-hint ok'; hint.textContent='✓ Access granted';
+    setTimeout(closeLanding, 600);
+  } else {
+    inp.className='ld-code-input err';
+    hint.className='ld-code-hint err'; hint.textContent='✗ Incorrect code. Please try again.';
+    setTimeout(()=>{ inp.className='ld-code-input'; inp.value=''; },700);
+  }
+}
+function closeLanding(){
+  document.getElementById('landing').classList.add('hide');
+}
+
+// ════ INFO TOOLTIP ════
+function toggleInfoTooltip(){ document.getElementById('info-tooltip').classList.toggle('show'); }
+document.addEventListener('click',e=>{
+  if(!e.target.closest('#info-btn')&&!e.target.closest('#info-tooltip'))
+    document.getElementById('info-tooltip').classList.remove('show');
+  if(!e.target.closest('.l-info-btn')&&!e.target.closest('.layer-tip'))
+    document.querySelectorAll('.layer-tip.show').forEach(t=>t.classList.remove('show'));
+});
+
+// ════ SERVER ════
+async function connectServer(){
+  API_BASE=document.getElementById('server-url').value.replace(/\/$/,'').trim();
+  if(!API_BASE){toast('Enter a server URL','warn');return;}
+  setStatus('busy','Connecting…');
+  try{
+    const res=await fetch(`${API_BASE}/health`,{signal:AbortSignal.timeout(6000),headers:HEADERS});
+    const d=await res.json();
+    if(d.gee_ready){
+      setStatus('ok','GEE Connected'); serverOk=true;
+      document.getElementById('gee-tag').textContent='● GEE Ready';
+      document.getElementById('gee-tag').style.color='var(--teal)';
+      toast(`✓ Connected — ${d.project}`,'info');
+    } else {
+      setStatus('err','GEE Not Ready');
+      toast('Server reachable but GEE not authenticated.','warn');
+    }
+  } catch(e){
+    setStatus('err','Cannot reach server');
+    toast('Cannot reach server — is Colab running?','error');
+    serverOk=false;
+  }
+}
+
+// ════ LOAD POLYGONS + AUTO-DETECT FIELDS ════
+async function loadPolygons(){
+  if(!serverOk){toast('Connect to server first','warn');return;}
+  const asset=document.getElementById('asset-path').value.trim();
+  if(!asset){toast('Enter asset path','warn');return;}
+  setStatus('busy','Loading…');
+  try{
+    // First: fetch debug info to discover real field names
+    try{
+      const dr=await fetch(`${API_BASE}/debug?asset_path=${encodeURIComponent(asset)}`,{headers:HEADERS});
+      const dd=await dr.json();
+      if(dd.samples&&dd.samples.length>0){
+        const keys=dd.samples[0].property_keys||[];
+        autoDetectFields(keys, dd.samples[0].properties||{});
+        showDebug(keys);
+      }
+    } catch(e){ /* debug optional */ }
+
+    const res=await fetch(`${API_BASE}/polygons?asset_path=${encodeURIComponent(asset)}`,{headers:HEADERS});
+    const d=await res.json();
+    if(d.status!=='ok') throw new Error(d.detail||'Failed');
+    allPolygons=d.polygons;
+    buildFilters();
+    renderPolyList([]);
+    setStatus('ok',`${allPolygons.length} polygons loaded`);
+    toast(`✓ ${allPolygons.length} polygon(s) loaded`,'info');
+  } catch(e){
+    setStatus('err','Load failed');
+    toast(`Load error: ${e.message}`,'error');
+  }
+}
+
+// ════ AUTO-DETECT FIELD NAMES ════
+function autoDetectFields(keys, sampleProps){
+  // keys is array of real property names from the asset
+  // For each logical field, find which key actually exists
+  const keysLower=keys.map(k=>k.toLowerCase());
+  function findKey(candidates){
+    for(const c of candidates){
+      if(keys.includes(c)) return c;
+      const ci=c.toLowerCase();
+      const idx=keysLower.indexOf(ci);
+      if(idx>=0) return keys[idx];
+    }
+    return null;
+  }
+  detectedFields = {
+    kegiatan:  findKey(FIELD_MAP.kegiatan),
+    kabupaten: findKey(FIELD_MAP.kabupaten),
+    kecamatan: findKey(FIELD_MAP.kecamatan),
+    desa:      findKey(FIELD_MAP.desa),
+    kelompok:  findKey(FIELD_MAP.kelompok),
+    area:      findKey(FIELD_MAP.area),
+  };
+  console.log('Detected fields:', detectedFields);
+  console.log('All keys:', keys);
+}
+
+function showDebug(keys){
+  const box=document.getElementById('debug-box');
+  const keg=detectedFields.kegiatan||'?';
+  const kab=detectedFields.kabupaten||'?';
+  const kec=detectedFields.kecamatan||'?';
+  const des=detectedFields.desa||'?';
+  const kel=detectedFields.kelompok||'?';
+  box.textContent=`Fields: kegiatan="${keg}" kabupaten="${kab}" kecamatan="${kec}" desa="${des}" kelompok="${kel}" | All: [${keys.join(', ')}]`;
+  box.className='show';
+}
+
+// ════ GET PROP with auto-detected key ════
+function getProp(polygon, logicalField){
+  const props=polygon.properties||{};
+  // Try auto-detected key first
+  const detected=detectedFields[logicalField];
+  if(detected && props[detected]!=null && props[detected]!=='') return String(props[detected]);
+  // Fallback: try all candidates
+  for(const k of (FIELD_MAP[logicalField]||[])){
+    const v=props[k]; if(v!=null&&v!=='') return String(v);
+  }
+  return '';
+}
+
+// ════ FILTERS ════
+function getUnique(arr, logicalField){
+  return [...new Set(arr.map(p=>getProp(p,logicalField)).filter(Boolean))].sort();
+}
+function fillSel(id, vals, placeholder, enabled){
+  const el=document.getElementById(id);
+  el.innerHTML=`<option value="">— ${placeholder} —</option>`;
+  vals.forEach(v=>{const o=document.createElement('option');o.value=o.textContent=v;el.appendChild(o);});
+  el.disabled=!enabled;
+  el.className='fsel'+(enabled&&vals.length?'':' ');
+}
+function buildFilters(){
+  const kegs=getUnique(allPolygons,'kegiatan');
+  fillSel('sel-kegiatan', kegs, 'Kegiatan', kegs.length>0);
+  fillSel('sel-kabupaten',[],'Kabupaten/Kota',false);
+  fillSel('sel-kecamatan',[],'Kecamatan',false);
+  fillSel('sel-desa',[],'Desa',false);
+  // If kegiatan field not found, try to build kabupaten directly
+  if(kegs.length===0){
+    const kabs=getUnique(allPolygons,'kabupaten');
+    if(kabs.length>0){
+      fillSel('sel-kegiatan',[],'Kegiatan (not found in asset)',false);
+      fillSel('sel-kabupaten',kabs,'Kabupaten/Kota',true);
+      toast('Kegiatan field not found — starting from Kabupaten','warn');
+    }
+  }
+}
+
+function onFilter(level){
+  const keg=document.getElementById('sel-kegiatan').value;
+  const kab=document.getElementById('sel-kabupaten').value;
+  const kec=document.getElementById('sel-kecamatan').value;
+
+  let pool=allPolygons;
+  if(keg) pool=pool.filter(p=>getProp(p,'kegiatan')===keg);
+  if(level==='kegiatan'){
+    fillSel('sel-kabupaten',getUnique(pool,'kabupaten'),'Kabupaten/Kota',keg!=='');
+    fillSel('sel-kecamatan',[],'Kecamatan',false);
+    fillSel('sel-desa',[],'Desa',false);
+    renderPolyList([]); return;
+  }
+  if(kab) pool=pool.filter(p=>getProp(p,'kabupaten')===kab);
+  if(level==='kabupaten'){
+    fillSel('sel-kecamatan',getUnique(pool,'kecamatan'),'Kecamatan',kab!=='');
+    fillSel('sel-desa',[],'Desa',false);
+    renderPolyList([]); return;
+  }
+  if(kec) pool=pool.filter(p=>getProp(p,'kecamatan')===kec);
+  if(level==='kecamatan'){
+    fillSel('sel-desa',getUnique(pool,'desa'),'Desa',kec!=='');
+    renderPolyList([]); return;
+  }
+  // desa
+  const des=document.getElementById('sel-desa').value;
+  if(des){
+    pool=pool.filter(p=>getProp(p,'desa')===des);
+    renderPolyList(pool,true);
+  } else {
+    renderPolyList([]);
+  }
+}
+
+// ════ POLYGON LIST — grouped by Kelompok ════
+function renderPolyList(polys, groupByKelompok=false){
+  const c=document.getElementById('poly-list'); c.innerHTML='';
+  if(!polys.length){
+    c.innerHTML='<div class="poly-empty">Select all filters above<br>to display Kelompok groups</div>'; return;
+  }
+  let entries=[];
+  if(groupByKelompok){
+    const groups={};
+    polys.forEach(p=>{
+      const key=getProp(p,'kelompok')||p.name||p.id;
+      if(!groups[key]) groups[key]={key,ids:[],polys:[],totalHa:0};
+      groups[key].ids.push(p.id);
+      groups[key].polys.push(p);
+      groups[key].totalHa+=parseFloat(getProp(p,'area')||p.area_ha)||0;
+    });
+    entries=Object.values(groups).map((g,i)=>({...g,color:COLORS[i%COLORS.length],displayName:g.key,displayHa:g.totalHa.toFixed(1)}));
+  } else {
+    entries=polys.map((p,i)=>({key:p.id,ids:[p.id],polys:[p],color:COLORS[i%COLORS.length],
+      displayName:getProp(p,'kelompok')||p.name||`Polygon ${p.id}`,
+      displayHa:String(p.area_ha||'')}));
+  }
+  entries.forEach((entry,i)=>{
+    const el=document.createElement('div'); el.className='poly-item'; el.id='pi-'+i;
+    const cnt=entry.ids.length;
+    el.innerHTML=`<div class="pdot" style="background:${entry.color}"></div>
+      <div class="pname" title="${entry.displayName}${cnt>1?' ('+cnt+'p)':''}">${entry.displayName}</div>
+      <div class="pha">${entry.displayHa} ha</div><div class="pcheck">✓</div>`;
+    el.onclick=()=>selectEntry(i,entry);
+    c.appendChild(el);
+  });
+}
+function selectEntry(idx,entry){
+  if(selected) document.getElementById('pi-'+selected._idx)?.classList.remove('active');
+  entry._idx=idx; selected=entry;
+  document.getElementById('pi-'+idx).classList.add('active');
+  if(entry.polys[0]?.centroid) map.flyTo(entry.polys[0].centroid,13,{duration:1.2});
+  toast(`Selected: ${entry.displayName}${entry.ids.length>1?' ('+entry.ids.length+' polygons)':''}`,'info');
+}
+
+// ════ LAYERS ════
+function renderLayerControls(){
+  const c=document.getElementById('layer-list'); c.innerHTML='';
+  LAYER_DEFS.forEach(l=>{
+    layerState[l.id]={on:l.on,opacity:l.opacity};
+    const el=document.createElement('div'); el.className='ltoggle'+(l.on?' on':''); el.id='lt-'+l.id;
+    const swatchStyle=l.id==='boundary'?`border:2px solid ${l.color};background:transparent;`
+      :l.id==='suitable'?`background:${l.color};border:1px solid #00e5a0;opacity:.8;`:`background:${l.color};`;
+    el.innerHTML=`<div class="tsw"></div>
+      <div class="lswatch" style="${swatchStyle}"></div>
+      <div class="lname">${l.label}</div>
+      <button class="l-info-btn" onclick="toggleLayerTip('${l.id}',event)">i</button>
+      <input type="range" class="lopacity" min="0" max="1" step="0.05" value="${l.opacity}"
+        onclick="event.stopPropagation()" oninput="setLayerOpacity('${l.id}',this.value);event.stopPropagation()">
+      <div class="layer-tip" id="tip-${l.id}">
+        <div class="layer-tip-title">${l.label}</div>
+        <div class="layer-tip-body">${l.info}</div>
+      </div>`;
+    el.onclick=e=>{if(e.target.type!=='range'&&!e.target.closest('.l-info-btn'))toggleLayer(l.id);};
+    c.appendChild(el);
+  });
+}
+function toggleLayerTip(id,e){
+  e.stopPropagation();
+  const tip=document.getElementById('tip-'+id);
+  const wasOpen=tip.classList.contains('show');
+  document.querySelectorAll('.layer-tip.show').forEach(t=>t.classList.remove('show'));
+  if(!wasOpen) tip.classList.add('show');
+}
+function toggleLayer(id){
+  layerState[id].on=!layerState[id].on;
+  document.getElementById('lt-'+id).classList.toggle('on',layerState[id].on);
+  applyLayerVisibility();
+}
+function setLayerOpacity(id,val){
+  layerState[id].opacity=parseFloat(val);
+  const lyr=tileLayers[id];
+  if(lyr&&typeof lyr.setOpacity==='function') lyr.setOpacity(parseFloat(val));
+}
+function applyLayerVisibility(){
+  Object.entries(tileLayers).forEach(([id,lyr])=>{
+    if(!lyr) return;
+    if(layerState[id]?.on){ if(!map.hasLayer(lyr)) map.addLayer(lyr); if(typeof lyr.setOpacity==='function') lyr.setOpacity(layerState[id].opacity); }
+    else{ if(map.hasLayer(lyr)) map.removeLayer(lyr); }
+  });
+}
+
+// ════ RUN ANALYSIS ════
+async function runAnalysis(){
+  if(!serverOk){toast('Connect to server first','warn');return;}
+  if(!selected){toast('Select a Kelompok first','warn');return;}
+  closeLanding();
+  setBusy(true); setProgress(5); showLog(true); clearTileLayers();
+  const steps=[
+    [400,10,'Loading Sentinel-2 imagery…'],[500,18,'Applying SCL cloud mask…'],
+    [400,25,'Computing NDWI…'],[500,33,'Loading S1 baseline…'],
+    [500,41,'Loading S1 flood period…'],[500,50,'Speckle filter 50m…'],
+    [400,58,'Computing ΔVV / ΔVH…'],[400,65,'Detecting open water…'],
+    [400,72,'Double-bounce detection…'],[500,80,'Estimating depth (FABDEM)…'],
+    [400,87,'Classifying suitability…'],[400,93,'Area statistics…'],
+    [300,97,'Fetching tile URLs…'],
+  ];
+  let i=0;
+  function tick(){ if(i>=steps.length){doFetch();return;} const[ms,pct,msg]=steps[i++]; setTimeout(()=>{setProgress(pct);addLog(msg);tick();},ms); }
+  tick();
+}
+async function doFetch(){
+  addLog('Sending request to API…');
+  const body={
+    asset_path:document.getElementById('asset-path').value.trim(),
+    base_start:document.getElementById('bs').value,
+    base_end:  document.getElementById('be').value,
+    flood_start:document.getElementById('fs').value,
+    flood_end:  document.getElementById('fe').value,
+    polygon_id: selected.ids.join(','),
+  };
+  try{
+    const res=await fetch(`${API_BASE}/analyze`,{method:'POST',headers:{...HEADERS,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!res.ok){const err=await res.json();throw new Error(err.detail||`HTTP ${res.status}`);}
+    const data=await res.json();
+    setProgress(100); addLog('Analysis complete ✓','done');
+    renderTileLayers(data); updateStats(data.area_ha); showResult(data);
+    setBusy(false); setProgress(0);
+  } catch(e){
+    addLog('Error: '+e.message,'err');
+    toast('Analysis failed: '+e.message,'error');
+    setBusy(false); setStatus('err','Analysis failed'); setProgress(0);
+  }
+}
+
+// ════ TILES ════
+function clearTileLayers(){ Object.values(tileLayers).forEach(l=>{if(l&&map.hasLayer(l))map.removeLayer(l);}); tileLayers={}; }
+function renderTileLayers(data){
+  const{tile_urls,boundary_geojson}=data;
+  ['true_color','suitable','depth','ndwi','stress','flood','inundation','submerged'].forEach(id=>{
+    const url=tile_urls[id]; if(!url) return;
+    tileLayers[id]=L.tileLayer(url,{opacity:layerState[id]?.opacity??0.75,maxZoom:20,tileSize:256});
+  });
+  if(boundary_geojson){
+    const a=data.area_ha;
+    tileLayers['boundary']=L.geoJSON(boundary_geojson,{
+      style:{color:'#ff4444',fillColor:'transparent',fillOpacity:0,weight:2.5}
+    }).bindPopup(`<div style="font-family:'Syne',sans-serif;min-width:190px">
+      <div style="font-weight:800;color:#ff4444;margin-bottom:8px">${selected.displayName}</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse">
+        <tr><td style="color:#aaa;padding:2px 0">Total</td><td style="text-align:right;font-family:'Space Mono'">${a.total} ha</td></tr>
+        <tr><td style="color:#4a90d9">Inundated</td><td style="text-align:right;font-family:'Space Mono';color:#4a90d9">${a.inundated} ha</td></tr>
+        <tr><td style="color:#ff7c38">Flooded</td><td style="text-align:right;font-family:'Space Mono';color:#ff7c38">${a.flooded} ha</td></tr>
+        <tr><td style="color:#ffd166">Stress</td><td style="text-align:right;font-family:'Space Mono';color:#ffd166">${a.stress} ha</td></tr>
+        <tr><td style="color:#00e5a0;font-weight:700">Suitable</td><td style="text-align:right;font-family:'Space Mono';color:#00e5a0;font-weight:700">${a.suitable} ha</td></tr>
+      </table></div>`);
+    map.flyToBounds(L.geoJSON(boundary_geojson).getBounds(),{padding:[50,60],duration:1.0});
+  }
+  applyLayerVisibility();
+}
+
+// ════ STATS ════
+function updateStats(a){ animNum('sv-i',a.inundated);animNum('sv-f',a.flooded);animNum('sv-s',a.stress);animNum('sv-k',a.suitable); }
+function animNum(id,target){
+  const el=document.getElementById(id),t0=performance.now(),dur=700;
+  (function f(t){const p=Math.min((t-t0)/dur,1),e=1-Math.pow(1-p,3);el.textContent=(target*e).toFixed(1);if(p<1)requestAnimationFrame(f);})(t0);
+}
+function showResult(data){
+  document.getElementById('legend').classList.add('show');
+  document.getElementById('badge').classList.add('show');
+  document.getElementById('btext').textContent=selected.displayName;
+  setStatus('ok','Analysis complete');
+  toast('✓ GEE data rendered on map','info');
+}
+
+// ════ LOG ════
+function toggleLog(){
+  logOpen=!logOpen;
+  document.getElementById('log-panel').classList.toggle('show',logOpen);
+  document.getElementById('log-chevron').textContent=logOpen?'▼':'▲';
+}
+function showLog(clear){
+  if(clear) document.getElementById('log-lines').innerHTML='';
+  logOpen=true;
+  document.getElementById('log-panel').classList.add('show');
+  document.getElementById('log-chevron').textContent='▼';
+}
+function addLog(msg,cls=''){
+  const ts=new Date().toTimeString().slice(0,8);
+  const line=document.createElement('div'); line.className='log-line '+cls;
+  line.innerHTML=`<span class="ts">${ts}</span><span>${msg}</span>`;
+  const c=document.getElementById('log-lines'); c.appendChild(line); c.scrollTop=c.scrollHeight;
+  document.getElementById('log-dot').className='dot'+(cls==='done'?' done':cls==='err'?' err':' busy');
+  document.getElementById('log-label').textContent=msg.slice(0,30)+(msg.length>30?'…':'');
+}
+
+// ════ UI ════
+function setBusy(on){
+  const btn=document.getElementById('run-btn'),sp=document.getElementById('bspin'),ico=document.getElementById('bicon'),lbl=document.getElementById('blabel');
+  btn.disabled=on; sp.className=on?'spin show':'spin'; ico.style.display=on?'none':'';
+  lbl.textContent=on?'Analyzing…':'Run Analysis'; btn.className=on?'busy':'';
+  if(on) setStatus('busy','Running analysis…');
+}
+function setStatus(state,text){ document.getElementById('sdot').className='sdot '+(state==='ok'?'ok':state==='busy'?'busy':'err'); document.getElementById('stext').textContent=text; }
+function setProgress(pct){ document.getElementById('pfill').style.width=pct+'%'; }
+function toast(msg,type='info'){
+  const el=document.getElementById('toast'); el.textContent=msg; el.className='show '+type;
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{el.className='';},3800);
+}
+
+document.addEventListener('DOMContentLoaded',()=>{ initMap(); });
+</script>
+</body>
+</html>
