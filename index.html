@@ -8,6 +8,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 <style>
 :root{
   --bg:#06100d;--panel:#0c1f18;--panel2:#0f2920;--border:#1e4030;
@@ -216,6 +218,32 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #toast.warn{border-color:var(--orange);color:var(--orange)}
 #toast.error{border-color:var(--red);color:var(--red)}
 
+/* ── DRAW MODE ── */
+#draw-bar{
+  position:absolute;top:12px;left:12px;z-index:450;
+  display:flex;flex-direction:column;gap:6px;
+}
+.draw-btn{
+  background:rgba(8,20,14,.93);border:1px solid var(--border);
+  border-radius:8px;padding:8px 12px;cursor:pointer;
+  display:flex;align-items:center;gap:8px;
+  font-family:var(--fm);font-size:11px;color:var(--text2);
+  transition:all .15s;white-space:nowrap;
+}
+.draw-btn:hover{border-color:var(--teal2);color:var(--teal)}
+.draw-btn.active{border-color:var(--teal);background:var(--teal-dim);color:var(--teal)}
+.draw-btn.danger{border-color:var(--red);color:var(--red)}
+.draw-btn.danger:hover{background:rgba(224,82,82,.1)}
+.draw-mode-pill{
+  display:none;position:absolute;top:12px;left:50%;transform:translateX(-50%);
+  background:var(--teal);color:#06100d;border-radius:20px;
+  padding:5px 14px;font-family:var(--fm);font-size:11px;font-weight:700;
+  z-index:460;pointer-events:none;
+}
+.draw-mode-pill.show{display:block}
+/* Override Leaflet Draw toolbar (we use custom buttons) */
+.leaflet-draw-toolbar{ display:none !important }
+
 /* FOOTER — fully visible */
 #footer{
   position:absolute;bottom:0;left:0;right:0;
@@ -330,6 +358,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <div id="map">
   <div id="lmap"></div>
 
+  <!-- DRAW BAR -->
+  <div id="draw-bar">
+    <button class="draw-btn" id="btn-draw" onclick="startDraw()" title="Draw custom polygon">
+      ✏️ Draw Polygon
+    </button>
+    <button class="draw-btn danger" id="btn-clear-draw" onclick="clearDraw()" title="Clear drawn polygon" style="display:none">
+      🗑 Clear Drawing
+    </button>
+  </div>
+  <div class="draw-mode-pill" id="draw-pill">✏️ Click map to draw — double-click to finish</div>
+
   <!-- LANDING PAGE — access code gated, no X button -->
   <div id="landing">
     <div class="ld-logo">
@@ -344,7 +383,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     </div>
 
     <!-- Colab link -->
-    <a class="ld-colab" href="https://colab.research.google.com/drive/1U5_hguzXB_1LrS_sWX51s0fjaSIwRIm0?usp=sharing" target="_blank" rel="noopener">
+    <a class="ld-colab" href="https://colab.research.google.com/drive/1qPjowC-d5tay4gFGV4Gpsdzj8WvfIeb_?usp=sharing" target="_blank" rel="noopener">
       <div class="ld-colab-icon">▶</div>
       <div class="ld-colab-txt">
         <strong>Open Backend Server on Google Colab</strong>
@@ -433,6 +472,7 @@ const COLORS=['#00e5a0','#4a90d9','#ff7c38','#ffd166','#e05252','#b57bee','#5ec4
 
 let map, allPolygons=[], selected=null;
 let layerState={}, tileLayers={}, toastTimer, serverOk=false, logOpen=false;
+let drawnLayer=null, drawControl=null, drawnGeometry=null;
 
 // ════ MAP ════
 function initMap(){
@@ -443,6 +483,65 @@ function initMap(){
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',
     {attribution:'© CartoDB',maxZoom:19,opacity:.7,pane:'overlayPane'}).addTo(map);
   renderLayerControls();
+}
+
+// ════ DRAW MODE ════
+function startDraw(){
+  clearDraw();
+  // Switching to draw mode — deselect any active kelompok
+  if(selected){
+    document.getElementById('pi-'+selected._idx)?.classList.remove('active');
+    selected = null;
+  }
+  document.getElementById('btn-draw').classList.add('active');
+  document.getElementById('draw-pill').classList.add('show');
+
+  // Create draw control
+  const drawnItems = new L.FeatureGroup();
+  map.addLayer(drawnItems);
+
+  drawControl = new L.Draw.Polygon(map, {
+    shapeOptions:{
+      color:'#00e5a0', fillColor:'#00e5a0', fillOpacity:0.2,
+      weight:2.5, dashArray:'6 4'
+    },
+    showArea: true,
+  });
+  drawControl.enable();
+
+  map.once(L.Draw.Event.CREATED, function(e){
+    drawnLayer = e.layer;
+    drawnItems.addLayer(drawnLayer);
+    drawnGeometry = drawnLayer.toGeoJSON().geometry;
+
+    // Show clear button, update draw button
+    document.getElementById('btn-draw').classList.remove('active');
+    document.getElementById('btn-draw').innerHTML = '✅ Polygon Drawn';
+    document.getElementById('btn-clear-draw').style.display = 'flex';
+    document.getElementById('draw-pill').classList.remove('show');
+
+    // Calculate approximate area in ha
+    const latlngs = drawnLayer.getLatLngs()[0];
+    toast(`✓ Polygon drawn — click Run Analysis`, 'info');
+  });
+
+  // Also handle cancel (Escape key)
+  map.once(L.Draw.Event.DRAWSTOP, function(){
+    document.getElementById('draw-pill').classList.remove('show');
+    if(!drawnGeometry){
+      document.getElementById('btn-draw').classList.remove('active');
+    }
+  });
+}
+
+function clearDraw(){
+  if(drawnLayer){ map.removeLayer(drawnLayer); drawnLayer=null; }
+  drawnGeometry = null;
+  document.getElementById('btn-draw').classList.remove('active');
+  document.getElementById('btn-draw').innerHTML = '✏️ Draw Polygon';
+  document.getElementById('btn-clear-draw').style.display = 'none';
+  document.getElementById('draw-pill').classList.remove('show');
+  if(drawControl){ try{ drawControl.disable(); }catch(e){} drawControl=null; }
 }
 
 // ════ ACCESS CODE ════
@@ -674,6 +773,8 @@ function renderPolyList(polys, groupByKelompok=false){
   });
 }
 function selectEntry(idx,entry){
+  // Switching to asset mode — clear any drawn polygon
+  clearDraw();
   if(selected) document.getElementById('pi-'+selected._idx)?.classList.remove('active');
   entry._idx=idx; selected=entry;
   document.getElementById('pi-'+idx).classList.add('active');
@@ -731,7 +832,7 @@ function applyLayerVisibility(){
 // ════ RUN ANALYSIS ════
 async function runAnalysis(){
   if(!serverOk){toast('Connect to server first','warn');return;}
-  if(!selected){toast('Select a Kelompok first','warn');return;}
+  if(!selected && !drawnGeometry){toast('Select a Kelompok or draw a polygon first','warn');return;}
   closeLanding();
   setBusy(true); setProgress(5); showLog(true); clearTileLayers();
   const steps=[
@@ -750,13 +851,19 @@ async function runAnalysis(){
 async function doFetch(){
   addLog('Sending request to API…');
   const body={
-    asset_path:document.getElementById('asset-path').value.trim(),
-    base_start:document.getElementById('bs').value,
-    base_end:  document.getElementById('be').value,
-    flood_start:document.getElementById('fs').value,
-    flood_end:  document.getElementById('fe').value,
-    polygon_id: selected.ids.join(','),
+    asset_path:  document.getElementById('asset-path').value.trim(),
+    base_start:  document.getElementById('bs').value,
+    base_end:    document.getElementById('be').value,
+    flood_start: document.getElementById('fs').value,
+    flood_end:   document.getElementById('fe').value,
   };
+  if(drawnGeometry){
+    body.drawn_geometry = drawnGeometry;
+    addLog(`MODE: Draw — geometry type: ${drawnGeometry.type}, coords: ${JSON.stringify(drawnGeometry.coordinates[0][0]).slice(0,40)}…`);
+  } else {
+    body.polygon_id = selected.ids.join(',');
+    addLog(`MODE: Asset — polygon_id: "${body.polygon_id}"`);
+  }
   try{
     const res=await fetch(`${API_BASE}/analyze`,{method:'POST',headers:{...HEADERS,'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(!res.ok){const err=await res.json();throw new Error(err.detail||`HTTP ${res.status}`);}
@@ -784,7 +891,7 @@ function renderTileLayers(data){
     tileLayers['boundary']=L.geoJSON(boundary_geojson,{
       style:{color:'#ff4444',fillColor:'transparent',fillOpacity:0,weight:2.5}
     }).bindPopup(`<div style="font-family:'Syne',sans-serif;min-width:190px">
-      <div style="font-weight:800;color:#ff4444;margin-bottom:8px">${selected.displayName}</div>
+      <div style="font-weight:800;color:#ff4444;margin-bottom:8px">${drawnGeometry ? 'Custom Polygon' : (selected?.displayName ?? '—')}</div>
       <table style="width:100%;font-size:11px;border-collapse:collapse">
         <tr><td style="color:#aaa;padding:2px 0">Total</td><td style="text-align:right;font-family:'Space Mono'">${a.total} ha</td></tr>
         <tr><td style="color:#4a90d9">Inundated</td><td style="text-align:right;font-family:'Space Mono';color:#4a90d9">${a.inundated} ha</td></tr>
@@ -806,7 +913,7 @@ function animNum(id,target){
 function showResult(data){
   document.getElementById('legend').classList.add('show');
   document.getElementById('badge').classList.add('show');
-  document.getElementById('btext').textContent=selected.displayName;
+  document.getElementById('btext').textContent = drawnGeometry ? 'Custom Polygon' : (selected?.displayName ?? '—');
   setStatus('ok','Analysis complete');
   toast('✓ GEE data rendered on map','info');
 }
