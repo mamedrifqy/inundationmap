@@ -8,15 +8,17 @@ Connects Google Earth Engine (Python API) to a Leaflet map frontend.
 ## Project Structure
 
 ```
-mangrove_app/
+inundationmap/
 ├── backend/
 │   ├── main.py            ← FastAPI server (GEE analysis engine)
 │   └── requirements.txt   ← Python dependencies
-├── frontend/
-│   └── index.html         ← Web app (open this in browser)
+├── index.html             ← Web app (the only frontend file; served at "/")
 ├── MangroveMap_Colab.ipynb ← Run server on Google Colab + ngrok
 └── README.md
 ```
+
+> `MangroveMap_Colab.ipynb` embeds a base64 copy of `backend/main.py`.
+> After editing `main.py`, regenerate that copy so the notebook stays in sync.
 
 ---
 
@@ -45,7 +47,7 @@ set GEE_PROJECT=your-project-id             # Windows
 
 ### Step 4: Start the server
 ```bash
-cd mangrove_app
+# from the repository root
 uvicorn backend.main:app --reload --port 8000
 ```
 You should see:
@@ -55,7 +57,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
 ### Step 5: Open the frontend
-Open `frontend/index.html` in your browser.
+Open `http://localhost:8000/` (the server serves `index.html`), or open `index.html` directly in your browser.
 - Server URL field: `http://localhost:8000`
 - Click **Connect**
 - Enter your GEE asset path, click ↻
@@ -98,11 +100,19 @@ gunicorn backend.main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/` | Serves `index.html` |
 | GET | `/health` | Check server + GEE status |
 | GET | `/polygons?asset_path=...` | List polygons in a GEE asset |
+| GET | `/debug?asset_path=...` | Property keys and sample values of the first 3 features |
 | POST | `/analyze` | Run full suitability analysis |
+| GET | `/export-status/{task_id}` | State of a GEE export task |
 
 ### POST /analyze — Request Body
+Give either `asset_path` (optionally with `polygon_id`) **or** `drawn_geometry`
+(a GeoJSON `Polygon`/`MultiPolygon`, as produced by the frontend's *Draw Polygon*
+mode). When `drawn_geometry` is present it is used as the AOI and `asset_path` /
+`polygon_id` are ignored. Invalid input returns HTTP 400.
+
 ```json
 {
   "asset_path":  "projects/my-project/assets/prm26",

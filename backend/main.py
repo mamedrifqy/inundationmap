@@ -44,10 +44,10 @@ async def add_ngrok_header(request: Request, call_next):
     response.headers["ngrok-skip-browser-warning"] = "true"
     return response
 
-# Serve the frontend HTML
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
-if os.path.exists(frontend_path):
-    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+# Frontend: the single index.html at the repository root (also what GitHub Pages
+# would serve). Only that one file is exposed — the repo root is NOT mounted as
+# static files, so backend/ and the notebook stay unreachable over HTTP.
+frontend_index = os.path.join(os.path.dirname(__file__), "..", "index.html")
 
 # ── GEE INITIALIZATION ────────────────────────────────────
 GEE_PROJECT = os.environ.get("GEE_PROJECT", "your-project-id")  # set via env var
@@ -78,12 +78,15 @@ except Exception as e:
 
 # ── REQUEST / RESPONSE MODELS ─────────────────────────────
 class AnalysisRequest(BaseModel):
-    asset_path: str          # e.g. "projects/my-project/assets/prm26"
+    asset_path: Optional[str] = None   # e.g. "projects/my-project/assets/prm26"
+                                       # required unless drawn_geometry is given
     base_start: str          # "2024-01-01"
     base_end: str            # "2024-06-30"
     flood_start: str         # "2024-10-01"
     flood_end: str           # "2025-01-31"
     polygon_id: Optional[str] = None   # optional filter by feature ID field
+    drawn_geometry: Optional[dict] = None  # GeoJSON Polygon/MultiPolygon drawn in the
+                                           # frontend; takes priority over asset_path
 
 
 class AnalysisResponse(BaseModel):
@@ -107,11 +110,24 @@ def run_gee_analysis(req: AnalysisRequest) -> dict:
     # Strategy: fetch ALL features from the asset in Python, find the ones
     # we want by index position, then pass their raw GeoJSON geometry back
     # to GEE. This bypasses all server-side filter issues entirely.
-    fc_full = ee.FeatureCollection(req.asset_path)
-    all_feats = fc_full.getInfo().get('features', [])
-    print(f"[AOI] asset has {len(all_feats)} features total")
+    drawn = req.drawn_geometry
+    if drawn:
+        # Custom polygon drawn in the frontend — use it directly, skip the asset.
+        if drawn.get('type') not in ('Polygon', 'MultiPolygon') or not drawn.get('coordinates'):
+            raise ValueError("drawn_geometry must be a GeoJSON Polygon or MultiPolygon "
+                             "with coordinates")
+        print(f"[AOI] using drawn geometry: {drawn['type']}")
+        matched = [{'type': 'Feature', 'properties': {}, 'geometry': drawn}]
+    else:
+        if not req.asset_path or not req.asset_path.strip():
+            raise ValueError("Provide either drawn_geometry or asset_path")
+        fc_full = ee.FeatureCollection(req.asset_path)
+        all_feats = fc_full.getInfo().get('features', [])
+        print(f"[AOI] asset has {len(all_feats)} features total")
 
-    if req.polygon_id and req.polygon_id.strip():
+    if drawn:
+        pass  # matched already set above
+    elif req.polygon_id and req.polygon_id.strip():
         # pids may be full paths or short hex — normalise to short suffix
         pids = set(p.strip().split("/")[-1]
                    for p in req.polygon_id.split(",") if p.strip())
@@ -337,10 +353,9 @@ def run_gee_analysis(req: AnalysisRequest) -> dict:
 @app.get("/")
 def root():
     """Serve the frontend HTML"""
-    index = os.path.join(frontend_path, "index.html")
-    if os.path.exists(index):
-        return FileResponse(index)
-    return {"message": "MangroveMap API is running. Place index.html in /frontend/"}
+    if os.path.exists(frontend_index):
+        return FileResponse(frontend_index)
+    return {"message": "MangroveMap API is running. index.html not found at the repo root."}
 
 
 @app.get("/health")
@@ -474,12 +489,16 @@ def analyze(req: AnalysisRequest):
       flood_start : "2024-10-01"
       flood_end   : "2025-01-31"
       polygon_id  : "0"   (optional — omit to use entire collection)
+      drawn_geometry : GeoJSON Polygon/MultiPolygon (optional — if given, it is
+                       used as the AOI and asset_path/polygon_id are ignored)
     """
     if not GEE_READY:
         raise HTTPException(503, "GEE not initialized. Run 'earthengine authenticate' and restart.")
     try:
         result = run_gee_analysis(req)
         return result
+    except ValueError as e:
+        raise HTTPException(400, f"Invalid request: {str(e)}")
     except ee.EEException as e:
         raise HTTPException(400, f"GEE error: {str(e)}")
     except Exception as e:
